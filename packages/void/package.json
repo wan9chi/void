@@ -340,7 +340,6 @@
     }
   },
   "scripts": {
-    "build": "node scripts/sync-docs.mjs && vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit --rootDir ../.."
   },

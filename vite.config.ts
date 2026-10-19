@@ -75,6 +75,12 @@ const platformAlias = {
 export default defineConfig({
   run: {
     tasks: {
+      // Builds packages in dependency order, so each build reads the finished outputs of the
+      // packages it depends on. void and @void/md depend on each other; md builds last.
+      build: {
+        command:
+          "vp run --filter './packages/**' --filter '!./packages/md' build && vp run --filter ./packages/md build",
+      },
       'build:all': {
         command:
           "vp run build && vp run --filter './platform/packages/**' build && vp run --filter './playground/**' --parallel build",
