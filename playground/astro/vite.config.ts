@@ -4,10 +4,9 @@ export default defineConfig({
   run: {
     tasks: {
       build: {
-        command: 'astro build',
-        // Prerendering starts Miniflare, which downloads Cloudflare's `Request.cf` data. Behind a
-        // TLS-intercepting proxy, that needs the proxy's CA certificates.
-        cache: { untrackedEnv: ['NODE_EXTRA_CA_CERTS'] },
+        // Prerendering starts Miniflare, which downloads Cloudflare's `Request.cf` data. Trusting the
+        // system's CA store lets that work behind a TLS-intercepting proxy whose CA is installed there.
+        command: 'NODE_USE_SYSTEM_CA=1 astro build',
       },
     },
   },
