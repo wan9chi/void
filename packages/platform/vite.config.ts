@@ -3,21 +3,20 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   run: {
     tasks: {
+      // Records the source revision in the runtime manifest. It isn't cached, so a new revision
+      // reruns only this step, and it gets the full environment, including
+      // VOID_PLATFORM_SOURCE_REVISION.
       build: {
-        command: 'vp run build:pack && node scripts/build-runtime.mjs',
-        // The dispatch Worker bundles `@void/isr/runtime` from the isr package's build output.
-        dependsOn: ['@void/isr#build'],
-        cache: {
-          // The runtime manifest records VOID_PLATFORM_SOURCE_REVISION or the Git revision.
-          env: ['VOID_PLATFORM_SOURCE_REVISION'],
-          input: [
-            { auto: true },
-            { pattern: '.git/HEAD', base: 'workspace' },
-            { pattern: '.git/refs/**', base: 'workspace' },
-          ],
-        },
+        command: 'node scripts/stamp-source-revision.mjs',
+        dependsOn: ['build:runtime'],
+        cache: false,
       },
-      // A separate task, so a new Git revision doesn't rerun the pack.
+      'build:runtime': {
+        command: 'node scripts/build-runtime.mjs',
+        // The runtime build imports the pack's output, and the dispatch Worker bundles
+        // `@void/isr/runtime` from the isr package's build output.
+        dependsOn: ['build:pack', '@void/isr#build'],
+      },
       'build:pack': 'vp pack',
     },
   },
