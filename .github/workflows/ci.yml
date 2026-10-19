@@ -24,10 +24,10 @@ jobs:
       # Remote cache uploads authenticate with a GitHub Actions OIDC token.
       id-token: write
     env:
-      # Remote task cache, on when the repository variable is set. Pushes upload results;
-      # pull requests only download them.
+      # Remote task cache, on when the repository variable is set. Pushes and pull requests from
+      # this repository upload results; fork pull requests get no OIDC token and only download.
       VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
-      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || github.event_name == 'push' && 'read-write' || 'read' }}
+      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'read-write' || 'read' }}
       # Recorded in the platform runtime manifest. Setting it keeps the cached build from running
       # `git`, whose reads of the whole checkout would otherwise become inputs of the task.
       VOID_PLATFORM_SOURCE_REVISION: ${{ github.sha }}
