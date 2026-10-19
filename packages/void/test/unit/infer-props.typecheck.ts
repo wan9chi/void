@@ -1,13 +1,17 @@
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { z } from 'zod';
 import type { InferProps } from '../../src/pages/defer.ts';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 
 type Book = { id: string; title: string };
 
 declare function findBook(id: string): Promise<Book | undefined>;
 
 const validators = { params: z.object({ id: z.string() }) };
+
+const middleware = defineMiddleware(async (_c, next) => {
+  await next();
+});
 
 describe('InferProps', () => {
   it('unwraps an async plain loader and excludes Response', () => {
@@ -75,5 +79,22 @@ describe('InferProps', () => {
     expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<{
       book: Promise<Book | undefined>;
     }>();
+  });
+  it('unwraps an async loader with middleware and excludes Response', () => {
+    const loader = defineHandler(middleware, async (c) => {
+      const book = await findBook('1');
+      if (!book) {
+        return c.notFound();
+      }
+      return { book };
+    });
+
+    expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<{ book: Book }>();
+  });
+
+  it('infers a loader with several middlewares', () => {
+    const loader = defineHandler(middleware, middleware, middleware, (_c) => ({ id: '1' }));
+
+    expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<{ id: string }>();
   });
 });

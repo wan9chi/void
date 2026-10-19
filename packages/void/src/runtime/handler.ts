@@ -211,33 +211,36 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
 export function defineHandler<R>(
   handler: (c: CloudContext) => R | Response | Promise<R | Response>,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
-export function defineHandler(firstMiddleware: MiddlewareFn, handler: HandlerFn): TypedHandler;
-export function defineHandler(
+export function defineHandler<R>(
+  firstMiddleware: MiddlewareFn,
+  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
-  handler: HandlerFn,
-): TypedHandler;
-export function defineHandler(
+  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
-  handler: HandlerFn,
-): TypedHandler;
-export function defineHandler(
+  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
-  handler: HandlerFn,
-): TypedHandler;
-export function defineHandler(
+  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
   fifthMiddleware: MiddlewareFn,
-  handler: HandlerFn,
-): TypedHandler;
+  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
   if (args.length === 1) {
     return args[0] as TypedHandler;

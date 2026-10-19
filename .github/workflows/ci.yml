@@ -26,8 +26,9 @@ jobs:
     env:
       # Remote task cache, on when the repository variable is set. Pushes and pull requests from
       # this repository upload results; fork pull requests get no OIDC token and only download.
+      # Replay: pull requests from fork/ branches stand in for fork pull requests.
       VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
-      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'read-write' || 'read' }}
+      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'fork/')) && 'read-write' || 'read' }}
     strategy:
       fail-fast: false
       matrix:
