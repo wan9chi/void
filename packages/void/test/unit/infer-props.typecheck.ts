@@ -101,16 +101,26 @@ describe('InferProps', () => {
     expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<{ id: string }>();
   });
 
-  it('keeps every promise a non-async loader can return', () => {
-    const load = () =>
+  it('keeps every promise a non-async loader with middleware can return', () => {
+    const loader = defineHandler(middleware, (_c) =>
       showAuthor
         ? findAuthor('1').then((author) => ({ author }))
-        : findBook('1').then((book) => ({ book }));
-    const loader = defineHandler((_c) => load());
-    const guarded = defineHandler(middleware, (_c) => load());
+        : findBook('1').then((book) => ({ book })),
+    );
 
-    type Expected = { author: Author } | { book: Book | undefined };
-    expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<Expected>();
-    expectTypeOf<InferProps<typeof guarded>>().toEqualTypeOf<Expected>();
+    expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<
+      { author: Author } | { book: Book | undefined }
+    >();
+  });
+
+  it('takes the props type as an explicit type argument', () => {
+    type Props = { title: string };
+    const loader = defineHandler<Props>(async () => ({ title: 'a' }));
+    const guarded = defineHandler<Props>(middleware, async (c) =>
+      c.req.query('missing') ? c.notFound() : { title: 'a' },
+    );
+
+    expectTypeOf<InferProps<typeof loader>>().toEqualTypeOf<Props>();
+    expectTypeOf<InferProps<typeof guarded>>().toEqualTypeOf<Props>();
   });
 });
