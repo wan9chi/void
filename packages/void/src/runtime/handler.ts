@@ -209,29 +209,29 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
  * Multiple arguments: middleware chain + final handler, composed at runtime.
  */
 export function defineHandler<R>(
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
@@ -239,7 +239,7 @@ export function defineHandler<R>(
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
   fifthMiddleware: MiddlewareFn,
-  handler: (c: CloudContext) => R | Response | Promise<R | Response>,
+  handler: (c: CloudContext) => R,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
 export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
   if (args.length === 1) {
