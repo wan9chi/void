@@ -2,11 +2,6 @@ import { cpSync } from 'node:fs';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
-  run: {
-    tasks: {
-      build: 'vp pack',
-    },
-  },
   pack: {
     entry: ['src/index.ts', 'src/plugin.ts', 'src/runtime/index.ts'],
     format: 'esm',

@@ -1,11 +1,6 @@
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
-  run: {
-    tasks: {
-      build: 'vp pack',
-    },
-  },
   pack: {
     entry: ['src/plugin.ts'],
     format: 'esm',
