@@ -46,7 +46,7 @@ jobs:
         run: vp run --last-details
       # Replay check: hash what the cached build left, to compare with a fresh build at the end.
       - if: ${{ !cancelled() }}
-        run: node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/cached-outputs.json"
+        run: node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/cached-outputs"
       - run: vp run build:docs
       - run: node test/check-playground-build-artifacts.mjs
       - run: vp run check
@@ -66,3 +66,12 @@ jobs:
         run: |
           node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/fresh-outputs.json"
           node .github/replay/outputs.mjs compare "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/fresh-outputs.json"
+          node .github/replay/outputs.mjs collect "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/fresh-outputs.json" "${{ runner.temp }}/cached-outputs" "${{ runner.temp }}/replay-diff"
+      - if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-diff-${{ matrix.os }}
+          path: ${{ runner.temp }}/replay-diff
+          if-no-files-found: ignore
+          retention-days: 30
