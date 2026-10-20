@@ -58,8 +58,11 @@ jobs:
         shell: bash
         env:
           VP_REMOTE_CACHE: 'off'
+        # Like CI's install, whose `prepare` script runs build:core before build:all: the platform
+        # runtime bundle reads void's dist when it exists, without depending on void.
         run: |
           git checkout -- . && git clean -fdxq -e node_modules
+          vp run --no-cache build:core
           vp run --no-cache build:all
       - if: ${{ !cancelled() }}
         continue-on-error: true

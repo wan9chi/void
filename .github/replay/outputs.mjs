@@ -22,10 +22,9 @@ function list(flags) {
 }
 
 if (command === 'snapshot') {
-  const paths = new Set([
-    ...list(['--others', '--exclude=node_modules', '--exclude=.git']),
-    ...list(['--modified']),
-  ]);
+  const modified = list(['--modified']);
+  for (const path of modified) console.log(`replay-verify: modified ${path}`);
+  const paths = new Set([...list(['--others', '--exclude=node_modules', '--exclude=.git']), ...modified]);
   const hashes = {};
   for (const path of [...paths].sort()) {
     try {
