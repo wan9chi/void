@@ -44,6 +44,25 @@ jobs:
       # Replay diagnostics: the full summary of the build:all run, with each task's cache status.
       - if: ${{ !cancelled() }}
         run: vp run --last-details
+      # Replay check: hash what the cached build left, to compare with a fresh build at the end.
+      - if: ${{ !cancelled() }}
+        run: node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/cached-outputs.json"
       - run: vp run build:docs
       - run: node test/check-playground-build-artifacts.mjs
       - run: vp run check
+      # Replay check: rebuild from a clean tree without the cache, and compare the outputs with the
+      # cached build's. A difference in a task that hit is a false hit unless the file is
+      # nondeterministic. These steps don't affect the job's result.
+      - if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          VP_REMOTE_CACHE: 'off'
+        run: |
+          git checkout -- . && git clean -fdxq -e node_modules
+          vp run --no-cache build:all
+      - if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/fresh-outputs.json"
+          node .github/replay/outputs.mjs compare "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/fresh-outputs.json"
