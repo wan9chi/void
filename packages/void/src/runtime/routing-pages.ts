@@ -22,6 +22,12 @@ export type PageRouteOptions = {
   renderOptions: PageGetArguments[7];
   namedActions?: boolean;
 };
+// The query key that selected a named action. It addresses the action, not
+// the page, so c.redirect() must not carry it into the destination.
+const actionQueryKeys = new WeakMap<Request, string>();
+export function getActionQueryKey(request: Request): string | undefined {
+  return actionQueryKeys.get(request);
+}
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
   return async (context) => {
     const mod = options.load ? await options.load() : { head: options.head };
@@ -59,6 +65,9 @@ export function createPageMutationHandler(
       return new Response('Unknown action' + (actionName ? ': ' + actionName : ''), {
         status: 404,
       });
+    }
+    if (actionName) {
+      actionQueryKeys.set(context.req.raw, actionName);
     }
     return handlePageMutation(
       handler,

@@ -11,6 +11,7 @@ import type { RedirectStatusCode } from 'hono/utils/http-status';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
+import { getActionQueryKey } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -175,7 +176,7 @@ export function createRoutingRuntime(
     const redirect = c.redirect.bind(c);
     c.redirect = (location, status) => {
       if (typeof location === 'string' && location.startsWith('/') && !location.startsWith('//')) {
-        return redirect(mergeQueryIntoLocation(location, new URL(c.req.raw.url).search), status);
+        return redirect(mergeQueryIntoLocation(location, redirectSearch(c.req.raw)), status);
       }
       return redirect(location, status);
     };
@@ -243,6 +244,18 @@ export function createRoutingRuntime(
       fallbackHandled.has(c.req.raw) ? Promise.resolve(undefined) : applyRules(c, rules, true),
     markNoMatch,
   };
+}
+
+function redirectSearch(request: Request): string {
+  const search = new URL(request.url).search;
+  const actionKey = getActionQueryKey(request);
+  if (actionKey === undefined) {
+    return search;
+  }
+  const params = new URLSearchParams(search);
+  params.delete(actionKey);
+  const rest = params.toString();
+  return rest ? '?' + rest : '';
 }
 
 export function markNoMatch(request: Request, response: Response): Response {

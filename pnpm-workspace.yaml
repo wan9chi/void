@@ -25,12 +25,12 @@ allowBuilds:
 catalog:
   '@cloudflare/workers-types': ^5.20261019.1
   '@types/node': ^26.6.5
-  '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.eac8730aa300823064cb775941f9605b2039c8f1
+  '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.dab73dabde306276f16fdd5f9b24b5656c288881
   typescript: 7.0.2
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@0.0.0-commit.eac8730aa300823064cb775941f9605b2039c8f1
-  vite-plus: 0.0.0-commit.eac8730aa300823064cb775941f9605b2039c8f1
+  vite: npm:@voidzero-dev/vite-plus-core@0.0.0-commit.dab73dabde306276f16fdd5f9b24b5656c288881
+  vite-plus: 0.0.0-commit.dab73dabde306276f16fdd5f9b24b5656c288881
   vitest: 5.0.5
   wrangler: ^4.151.3
   # beta.19 adds a second workerd release beside the stable Vite plugin's runtime.
@@ -127,7 +127,7 @@ peerDependencyRules:
     vite: '*'
 
 minimumReleaseAgeExclude:
-  - vite-plus@0.0.0-commit.eac8730aa300823064cb775941f9605b2039c8f1
+  - vite-plus@0.0.0-commit.dab73dabde306276f16fdd5f9b24b5656c288881
   - '@better-auth/core@1.7.11'
   - '@better-auth/drizzle-adapter@1.7.11'
   - '@better-auth/kysely-adapter@1.7.11'
