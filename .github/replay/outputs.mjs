@@ -2,7 +2,8 @@
 //
 //   node .github/replay/outputs.mjs snapshot <file> [<copy dir>]   hash build outputs into <file>,
 //                                                                    and copy them into <copy dir>
-//   node .github/replay/outputs.mjs compare <cached> <fresh>
+//   node .github/replay/outputs.mjs compare <cached> <fresh> [<copy dir>]   with a copy dir, also print
+//                                       where each differing file's two versions differ
 //   node .github/replay/outputs.mjs collect <cached> <fresh> <copy dir> <out dir>
 //                                       copy both versions of each differing output into <out dir>
 //
@@ -46,6 +47,7 @@ if (command === 'snapshot') {
     if (!kind) continue;
     counts[kind]++;
     console.log(`replay-verify: ${kind} ${path}`);
+    if (kind === 'differs' && args[2]) delta(join(args[2], path), path);
   }
   console.log(
     `replay-verify: done ${counts.differs} differ, ${counts['only-cached']} only cached, ${counts['only-fresh']} only fresh, ${Object.keys(fresh).length} files`,
@@ -73,5 +75,22 @@ function copy(from, to) {
     copyFileSync(from, to);
   } catch {
     // Folders listed by git as untracked entries, unreadable files: nothing to copy.
+  }
+}
+
+// Print the differing middle of two versions of a file, trimmed to the common prefix and suffix.
+function delta(cachedPath, freshPath) {
+  try {
+    const a = readFileSync(cachedPath);
+    const b = readFileSync(freshPath);
+    if (a.length > 16 << 20 || b.length > 16 << 20) return;
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    let end = 0;
+    while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
+    const show = (buf) => JSON.stringify(buf.subarray(start, buf.length - end).toString('utf8').slice(0, 200));
+    console.log(`replay-verify: delta ${freshPath} at ${start}: ${show(a)} -> ${show(b)}`);
+  } catch {
+    // Missing or unreadable copies: no delta.
   }
 }
