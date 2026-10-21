@@ -456,7 +456,15 @@ describe('typed Pages and SSR execution', () => {
       expect(response.status).toBe(status);
     }
   });
-  it('drops the named action key from the query that c.redirect() carries over', async () => {
+  it.each([
+    ['/named?delete', '/named'],
+    ['/named?delete&page=2', '/named?page=2'],
+    ['/named?delete=1&page=2', '/named?page=2'],
+    ['/named?&delete&page=2', '/named?page=2'],
+    ['/named?delete&delete=x&page=2', '/named?delete=x&page=2'],
+    ['/named?delete&q=a%20b&flag', '/named?q=a%20b&flag'],
+    ['/single?page=2', '/done?page=2'],
+  ])('drops only the named action key when c.redirect() carries %s', async (path, location) => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
     app.use(runtime.contextMiddleware);
@@ -476,14 +484,8 @@ describe('typed Pages and SSR execution', () => {
         load: async () => ({ action: redirectTo('/done') }),
       }),
     );
-    for (const [path, location] of [
-      ['/named?delete', '/named'],
-      ['/named?delete&page=2', '/named?page=2'],
-      ['/single?page=2', '/done?page=2'],
-    ] as const) {
-      const response = await app.fetch(new Request('https://app.test' + path, { method: 'POST' }));
-      expect(response.headers.get('location')).toBe(location);
-    }
+    const response = await app.fetch(new Request('https://app.test' + path, { method: 'POST' }));
+    expect(response.headers.get('location')).toBe(location);
   });
   it('executes the real page loader and protocol', async () => {
     const app = new Hono();

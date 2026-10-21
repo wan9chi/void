@@ -22,11 +22,11 @@ export type PageRouteOptions = {
   renderOptions: PageGetArguments[7];
   namedActions?: boolean;
 };
-// The query key that selected a named action. It addresses the action, not
-// the page, so c.redirect() must not carry it into the destination.
-const actionQueryKeys = new WeakMap<Request, string>();
-export function getActionQueryKey(request: Request): string | undefined {
-  return actionQueryKeys.get(request);
+// Requests whose first query key selected a named action. That key addresses
+// the action, not the page, so c.redirect() must not carry it over.
+const actionQueryRequests = new WeakSet<Request>();
+export function hasActionQueryKey(request: Request): boolean {
+  return actionQueryRequests.has(request);
 }
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
   return async (context) => {
@@ -67,7 +67,7 @@ export function createPageMutationHandler(
       });
     }
     if (actionName) {
-      actionQueryKeys.set(context.req.raw, actionName);
+      actionQueryRequests.add(context.req.raw);
     }
     return handlePageMutation(
       handler,

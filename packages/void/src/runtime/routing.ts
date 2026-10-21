@@ -11,7 +11,7 @@ import type { RedirectStatusCode } from 'hono/utils/http-status';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
-import { getActionQueryKey } from './routing-pages.ts';
+import { hasActionQueryKey } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -248,14 +248,22 @@ export function createRoutingRuntime(
 
 function redirectSearch(request: Request): string {
   const search = new URL(request.url).search;
-  const actionKey = getActionQueryKey(request);
-  if (actionKey === undefined) {
+  if (!hasActionQueryKey(request)) {
     return search;
   }
-  const params = new URLSearchParams(search);
-  params.delete(actionKey);
-  const rest = params.toString();
-  return rest ? '?' + rest : '';
+  // The action key is the first non-empty segment; keep the rest as sent.
+  let start = 1;
+  while (search[start] === '&') {
+    start++;
+  }
+  let rest = search.indexOf('&', start);
+  if (rest === -1) {
+    return '';
+  }
+  while (search[rest] === '&') {
+    rest++;
+  }
+  return rest < search.length ? '?' + search.slice(rest) : '';
 }
 
 export function markNoMatch(request: Request, response: Response): Response {
