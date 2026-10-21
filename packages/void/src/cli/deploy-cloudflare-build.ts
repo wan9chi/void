@@ -1,6 +1,4 @@
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { getRootConfigPath } from '@cloudflare/build-output-utils';
 import {
   parseRootWranglerConfig,
   readStoredResourceName,
@@ -326,6 +324,9 @@ export async function buildCloudflareWorker(input: {
   const generatedConfigPath = (
     deps.resolveGeneratedConfigPath ?? resolveGeneratedDeployConfigPathDefault
   )(root);
+  // Deploy guards validate this Worker's generated config. The native output
+  // tree can also contain auxiliary Workers and settings those guards have not
+  // approved, so the CLI must keep preparing the validated Worker artifact.
   const prepareBuildOutput = () =>
     frameworkPreset?.cloudflareArtifact === 'worker-output'
       ? prepareCfFrameworkBuildOutput({
@@ -333,10 +334,7 @@ export async function buildCloudflareWorker(input: {
           configPath: generatedConfigPath,
           accountId,
         })
-      : prepareCfBuildOutput(
-          existsSync(getRootConfigPath(root)) ? root : dirname(generatedConfigPath),
-          accountId,
-        );
+      : prepareCfBuildOutput(dirname(generatedConfigPath), accountId);
   if (usesCf) {
     // Validate the exact upload format before changing a remote database or secret.
     const preflight = await prepareBuildOutput();
