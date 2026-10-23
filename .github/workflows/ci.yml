@@ -41,6 +41,10 @@ jobs:
       # Build every playground once per OS for complete build/type coverage.
       # Integration tests build their own selected fixtures in separate checkouts.
       - run: vp run --cache build:all
+        env:
+          # Replay diagnostics: vp's debug traces show where each task's time goes, such as how long
+          # its remote cache lookup waited. VP_* envs aren't fingerprinted.
+          VP_LOG: vt=debug,vt_remote_cache=debug
       # Replay diagnostics: the full summary of the build:all run, with each task's cache status.
       - if: ${{ !cancelled() }}
         run: vp run --last-details
