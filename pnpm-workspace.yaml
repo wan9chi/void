@@ -24,6 +24,7 @@ allowBuilds:
 
 catalog:
   '@cloudflare/workers-types': ^5.20261019.1
+  '@cloudflare/workers-utils': ^0.47.3
   '@types/node': ^26.6.5
   '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.dd9cdd6b96e1718a3f91eb64291cf4788e2bd587
   typescript: 7.0.2
