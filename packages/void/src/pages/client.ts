@@ -292,7 +292,9 @@ export type ActionClient = {
 };
 
 /** Creates an action client with its own router for each framework adapter. */
-export function createActionClient(): ActionClient {
+export function createActionClient(
+  defaults: Pick<VisitOptions, '_resolveOnShell'> = {},
+): ActionClient {
   let _router: VoidRouter | null = null;
 
   /** Called during app initialization to store the router instance */
@@ -317,7 +319,7 @@ export function createActionClient(): ActionClient {
       url,
       options?.params as Record<string, string> | undefined,
     );
-    return submitAction(_router, resolvedUrl, { method, data });
+    return submitAction(_router, resolvedUrl, { method, data, ...defaults });
   }
 
   return { action, setActionRouter };

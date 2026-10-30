@@ -207,6 +207,100 @@ function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = '
   describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
 }
 
+function defineTransitionAwaitTests(getBase: () => string) {
+  describe.concurrent('React action completion', { retry: 0 }, () => {
+    const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
+
+    it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      let releaseResponse!: () => void;
+      const responseGate = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+
+      try {
+        await page.goto(`${getBase()}/transition-await`);
+        await page.waitForSelector('#app[data-hydrated="true"]');
+        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('initial');
+        await page.route('**/transition-await*', async (route) => {
+          await responseGate;
+          await route.continue();
+        });
+        const button = page.getByTestId(mode);
+        const [response] = await Promise.all([
+          page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === '/transition-await' &&
+              Boolean(response.request().headers()['x-voidpages']),
+          ),
+          (async () => {
+            await button.click();
+            await expect.poll(() => button.textContent()).toBe('pending');
+            releaseResponse();
+          })(),
+        ]);
+        expect(response.status()).toBe(200);
+        expect((await response.json()).props.revision).toBe('updated');
+
+        // The server has finished. Awaiting its result must not keep React's
+        // Action pending forever or prevent the new page from committing.
+        await expect
+          .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
+          .toBe('complete');
+        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+        await expect.poll(() => button.textContent()).toBe('run');
+        expect(errors).toEqual([]);
+      } finally {
+        releaseResponse();
+        await context.close();
+      }
+    });
+
+    it('preserves optimistic state and stays pending through the Action and Suspense', async ({
+      expect,
+    }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      try {
+        const url = `${getBase()}/transition-await`;
+        await page.goto(url);
+        await page.waitForSelector('#app[data-hydrated="true"]');
+        const button = page.getByTestId('async-contract');
+        await button.click();
+        await expect.poll(() => page.getByTestId('data-ready').textContent()).toBe('ready');
+        expect(await button.textContent()).toBe('pending');
+        expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+        expect(await page.getByTestId('revision').textContent()).toBe('initial');
+        expect(page.url()).toBe(url);
+
+        // The caller finishes, but the new page still suspends. The old page,
+        // optimistic state and URL must stay until React can commit the new UI.
+        await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+        );
+        expect(await button.textContent()).toBe('pending');
+        expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+        expect(await page.getByTestId('revision').textContent()).toBe('initial');
+        expect(page.url()).toBe(url);
+
+        await page.evaluate(() => window.dispatchEvent(new Event('finish-render')));
+        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+        await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('updated');
+        await expect.poll(() => button.textContent()).toBe('run');
+        expect(errors).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+}
+
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
@@ -986,6 +1080,7 @@ describe('react-pages client (dev)', () => {
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
+  defineTransitionAwaitTests(() => DEV_BASE);
   defineSharedIslandTests(
     () => DEV_BASE,
     () => browser,
@@ -1061,6 +1156,7 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   });
 
   defineClientTests(() => PREVIEW_BASE);
+  defineTransitionAwaitTests(() => PREVIEW_BASE);
   defineSharedIslandTests(
     () => PREVIEW_BASE,
     () => browser,
