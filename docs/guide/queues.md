@@ -76,7 +76,7 @@ export default defineQueue<Message>(async (batch, env) => {
 - `batch.ackAll()`: acknowledge all messages in the batch
 - `batch.retryAll(options?)`: retry all messages in the batch
 
-The first call wins for each message. Calling `ack()` after `retry()`, or the reverse, does nothing. Messages with no explicit decision are acknowledged if the handler succeeds, or retried if it throws.
+The first call wins for each message. Calling `ack()` after `retry()`, or the reverse, does nothing. Messages with no explicit decision are acknowledged if the handler succeeds, or retried if it throws. The handler's error is logged, so you don't need to catch errors just to log them.
 
 The `timestamp` field on each message is a `Date` object.
 

@@ -553,15 +553,23 @@ export function compileRouteTable(
       ),
     );
     lines.push('');
+    const queueLabels = scan.queues.map((queue) =>
+      relative(options.projectRoot, `${queuesDir}/${queue.filePath}`),
+    );
+    lines.push(`const __queueLabels = ${JSON.stringify(queueLabels)};`);
     // Queue dispatch as a standalone function — called directly by native queue handler
     // and via the authenticated HTTP route. No global mutable state needed.
+    // It logs why a batch failed: the native handler throws only "queue: Handler failed.",
+    // the HTTP route returns no handler error, and the Void Cloud relay ignores `error`.
     lines.push('export async function __processQueue(payload, env) {');
     lines.push('  const queueSuffix = payload.queue;');
     lines.push('  const __queueIndex = __resolveQueueIndex(queueSuffix);');
     lines.push('  if (__queueIndex === -1) {');
     lines.push(
-      '    return { ok: false, error: `No unambiguous queue handler matches "${String(queueSuffix)}"` };',
+      '    const __error = `No unambiguous queue handler matches "${String(queueSuffix)}"`;',
     );
+    lines.push('    console.error(`[void] ${__error}`);');
+    lines.push('    return { ok: false, error: __error };');
     lines.push('  }');
     lines.push('  const __decisions = new Map();');
     lines.push('  function __wrapMsg(m) {');
@@ -599,7 +607,12 @@ export function compileRouteTable(
       lines.push('      }');
     }
     lines.push('    }');
-    lines.push('  } catch { __ok = false; }');
+    lines.push('  } catch (error) {');
+    lines.push(
+      '    console.error(`[void] Queue handler ${__queueLabels[__queueIndex]} failed for queue "${String(queueSuffix)}":`, error);',
+    );
+    lines.push('    __ok = false;');
+    lines.push('  }');
     lines.push(
       '  return { ok: __ok, ...(__decisions.size > 0 ? { decisions: Object.fromEntries(__decisions) } : {}) };',
     );

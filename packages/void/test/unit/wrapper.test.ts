@@ -387,6 +387,7 @@ describe('generated wrapper queue dispatch', () => {
     for (const root of roots.splice(0, roots.length)) {
       rmSync(root, { recursive: true, force: true });
     }
+    vi.restoreAllMocks();
   });
 
   async function createRelayWorker() {
@@ -402,7 +403,7 @@ describe('generated wrapper queue dispatch', () => {
       `export default function(batch, env) {
       env.calls.push(batch.messages[0].timestamp.getTime());
       batch.messages[0].ack();
-      if (env.fail) throw new Error('after first message');
+      if (env.fail) throw env.fail;
       batch.messages[0].retry();
       batch.messages[1].retry({ delaySeconds: 9 });
       batch.ackAll();
@@ -435,6 +436,7 @@ describe('generated wrapper queue dispatch', () => {
 
   it('delivers managed HTTP batches and returns first-wins acknowledgment decisions', async () => {
     const worker = await createRelayWorker();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const env = { __VOID_PROXY_TOKEN: 'token', calls: [] as Array<number> };
     const response = await worker.fetch(relayRequest('token'), env, {});
     expect(response.status).toBe(200);
@@ -446,8 +448,13 @@ describe('generated wrapper queue dispatch', () => {
       },
     });
     expect(env.calls).toEqual([Date.parse('2026-01-01T00:00:00Z')]);
-    const failed = await worker.fetch(relayRequest('token'), { ...env, fail: true }, {});
+    expect(errorLog).not.toHaveBeenCalled();
+    const failure = new Error('after first message');
+    const failed = await worker.fetch(relayRequest('token'), { ...env, fail: failure }, {});
     expect(await failed.json()).toEqual({ ok: false, decisions: { one: { action: 'ack' } } });
+    expect(errorLog.mock.calls).toHaveLength(1);
+    expect(errorLog.mock.calls[0][0]).toBe('[void] Queue handler failed for queue "emails":');
+    expect(errorLog.mock.calls[0][1]).toBe(failure);
     expect((await worker.fetch(new Request('https://worker/__void/ready'), env, {})).status).toBe(
       200,
     );

@@ -903,7 +903,12 @@ export async function handleQueueRelay(payload, env, ctx) {
     retryAll(options) { for (const message of messages) message.retry(options); },
   };
   let ok = true;
-  try { await handleQueue(batch, env, ctx); } catch { ok = false; }
+  try {
+    await handleQueue(batch, env, ctx);
+  } catch (error) {
+    console.error(\`[void] Queue handler failed for queue "\${payload.queue}":\`, error);
+    ok = false;
+  }
   return { ok, ...(decisions.size ? { decisions: Object.fromEntries(decisions) } : {}) };
 }`);
   }
