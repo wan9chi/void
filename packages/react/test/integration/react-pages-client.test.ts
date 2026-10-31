@@ -266,12 +266,35 @@ function defineTransitionAwaitTests(getBase: () => string) {
       const page = await context.newPage();
       const errors: Array<string> = [];
       page.on('pageerror', (error) => errors.push(error.message));
+      let releaseResponse!: () => void;
+      const responseGate = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
       try {
         const url = `${getBase()}/transition-await`;
         await page.goto(url);
         await page.waitForSelector('#app[data-hydrated="true"]');
+        await page.route('**/transition-await?ping', async (route) => {
+          await responseGate;
+          await route.continue();
+        });
         const button = page.getByTestId('async-contract');
-        await button.click();
+        // Cold dev compilation can exceed expect.poll's one-second default on
+        // Windows. Wait for the server before checking the Action continuation.
+        const [response] = await Promise.all([
+          page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === '/transition-await' &&
+              response.request().method() === 'POST',
+          ),
+          (async () => {
+            await button.click();
+            await expect.poll(() => button.textContent()).toBe('pending');
+            await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('saving');
+            releaseResponse();
+          })(),
+        ]);
+        expect(response.status()).toBe(200);
         await expect.poll(() => page.getByTestId('data-ready').textContent()).toBe('ready');
         expect(await button.textContent()).toBe('pending');
         expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
@@ -295,6 +318,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
         await expect.poll(() => button.textContent()).toBe('run');
         expect(errors).toEqual([]);
       } finally {
+        releaseResponse();
         await context.close();
       }
     });
