@@ -26,12 +26,12 @@ catalog:
   '@cloudflare/workers-types': ^5.20261102.1
   '@cloudflare/workers-utils': ^0.50.2
   '@types/node': ^26.6.6
-  '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.dd9cdd6b96e1718a3f91eb64291cf4788e2bd587
+  '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.944362ebc6c035497a28f75ec03b7989692903f4
   typescript: 7.0.2
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@0.0.0-commit.dd9cdd6b96e1718a3f91eb64291cf4788e2bd587
-  vite-plus: 0.0.0-commit.dd9cdd6b96e1718a3f91eb64291cf4788e2bd587
+  vite: npm:@voidzero-dev/vite-plus-core@0.0.0-commit.944362ebc6c035497a28f75ec03b7989692903f4
+  vite-plus: 0.0.0-commit.944362ebc6c035497a28f75ec03b7989692903f4
   vitest: 5.0.5
   wrangler: ^4.156.1
   cf: ^1.0.0-beta.26
@@ -139,7 +139,7 @@ peerDependencyRules:
     vite: '*'
 
 minimumReleaseAgeExclude:
-  - vite-plus@0.0.0-commit.dd9cdd6b96e1718a3f91eb64291cf4788e2bd587
+  - vite-plus@0.0.0-commit.944362ebc6c035497a28f75ec03b7989692903f4
   - '@better-auth/core@1.7.11'
   - '@better-auth/drizzle-adapter@1.7.11'
   - '@better-auth/kysely-adapter@1.7.11'
