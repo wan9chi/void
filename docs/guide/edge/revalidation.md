@@ -1,4 +1,5 @@
 ---
+description: 'Cache rendered pages and refresh them in the background, so visitors keep reading while a new version renders.'
 outline: deep
 ---
 
@@ -60,6 +61,8 @@ export const loader = defineHandler(async (c) => {
   // ...
 });
 ```
+
+Use a whole-number literal such as `3600`. Void reads the value without running the file, so it ignores an expression such as `60 * 60` or a value re-exported from another module, and prints a warning.
 
 Per-page values take precedence over `void.config.ts` patterns.
 

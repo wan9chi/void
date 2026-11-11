@@ -1,4 +1,5 @@
 ---
+description: 'Serve another route without changing the browser URL, and read the URL that was originally requested.'
 outline: deep
 ---
 
@@ -14,7 +15,7 @@ Pass a [`RouteDestination`](./types.md#route-types) object to check the route pa
 
 ```ts
 return c.rewrite({
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
 });
@@ -29,8 +30,8 @@ import { routeUrl, type Href } from 'void/routes';
 
 declare const checkoutUrl: string;
 
-return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
-return c.redirect({ pathname: '/users/:id', params: { id: 42 } });
+return c.redirect(routeUrl('/users/[id]', { params: { id: 42 } }));
+return c.redirect({ pathname: '/users/[id]', params: { id: 42 } });
 return c.redirect('https://example.com/login');
 return c.redirect(checkoutUrl as Href);
 ```
@@ -44,7 +45,7 @@ return c.redirect(requested.origin === new URL(c.req.url).origin ? requested : '
 
 `c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.
 
-A [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) is the exception. Redirecting it to a GET page drops the action key and keeps the page's other query parameters: `POST /users/42?delete&tab=profile` with `c.redirect('/users/42')` goes to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
+A [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) is the exception. Redirecting it to a GET page drops the action key and keeps the page's other query parameters: `POST /users/42?delete&tab=profile` with `c.redirect('/users/42')` goes to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`. Only the action URL's own parameters are kept: the [current page's query](../../guide/pages-routing/actions-and-forms.md#query-parameters-after-submission) that `action()` and forms add is left out.
 
 ```ts
 import { defineHandler } from 'void';

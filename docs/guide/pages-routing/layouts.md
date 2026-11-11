@@ -1,4 +1,5 @@
 ---
+description: 'Share navigation and other UI across pages. Layouts nest with your directories and keep their state during navigation.'
 outline: deep
 ---
 
@@ -215,6 +216,8 @@ layout: post
 A named layout replaces the deepest default layout: in `[root, docs/layout]`, it replaces `docs/layout`; in `[root]`, it replaces the root.
 
 Void uses the closest matching `_layouts/` file in the page's directory or an ancestor. A missing named layout fails the build.
+
+Declare `layout` in the page file itself with a string literal or `false`. Void reads it without running the page, so it ignores a computed or re-exported value and prints a warning.
 
 ## Shared Data
 

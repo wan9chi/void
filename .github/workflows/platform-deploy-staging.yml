@@ -1,0 +1,82 @@
+name: Deploy Platform Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    # Same filter as platform-ci.yml: workers bundle the SDK, so SDK-only
+    # changes must redeploy staging too.
+    paths:
+      - 'platform/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'vite.config.ts'
+      - '.github/workflows/platform-*.yml'
+
+concurrency:
+  # One running deploy plus at most one pending. Never interrupt a deploy
+  # between the api migration and the workers that depend on it.
+  group: platform-deploy-staging
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  check-ref:
+    if: ${{ vars.VOID_PLATFORM_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      # Actions string comparisons ignore case. Check before entering Staging.
+      - name: Verify the exact staging branch
+        run: test "$GITHUB_REF" = 'refs/heads/main'
+
+  ci:
+    if: ${{ vars.VOID_PLATFORM_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    needs: check-ref
+    uses: ./.github/workflows/platform-ci.yml
+    with:
+      # Exercise the production baseline before main can be tagged for release.
+      require-schema-compat: true
+    permissions:
+      contents: read
+      deployments: read
+
+  deploy:
+    if: ${{ vars.VOID_PLATFORM_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    needs: ci
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: Staging
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
+        with:
+          cache: true
+          node-version-file: .node-version
+      - name: Build the staging platform
+        run: vp run build
+      - name: Deploy the first-party staging platform
+        run: vp run --filter @voidcloud/platform deploy:staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          EMAIL_SIGNING_SECRET: ${{ secrets.EMAIL_SIGNING_SECRET }}
+
+  smoke-test:
+    if: ${{ vars.VOID_PLATFORM_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    needs: deploy
+    uses: ./.github/workflows/platform-smoke-test.yml
+    permissions:
+      contents: read
+    # Pass only the smoke-test credentials. The called job resolves their values
+    # from Staging; omitting this mapping leaves them empty on reusable runs.
+    secrets:
+      CF_ACCESS_CLIENT_ID_STAGING: ${{ secrets.CF_ACCESS_CLIENT_ID_STAGING }}
+      CF_ACCESS_CLIENT_SECRET_STAGING: ${{ secrets.CF_ACCESS_CLIENT_SECRET_STAGING }}
+      VOID_TOKEN_STAGING: ${{ secrets.VOID_TOKEN_STAGING }}

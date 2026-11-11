@@ -1,4 +1,5 @@
 ---
+description: 'Add Markdown files in pages/ as routes. They inherit layouts and ship JavaScript only for islands and client scripts.'
 outline: deep
 ---
 
@@ -194,7 +195,6 @@ export default function DocsLayout({ children }) {
 import { useFrontmatter } from '@void/md';
 
 const fm = useFrontmatter();
-// fm.title, fm.description, etc.
 </script>
 
 <template>

@@ -16,8 +16,10 @@ import {
 } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
+  isVoidSecretDraftHeader,
   isVoidSecretOnlyDraft,
   isWranglerSecretOnlyDraft,
+  VOID_SECRET_DRAFT_MESSAGE,
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
 
@@ -27,11 +29,11 @@ const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
 export type CloudflareVersionMetadata =
   | Readonly<{
       schema: 1;
-      migrations: ReadonlyArray<string>;
+      migrations: ReadonlyArray<string> | null;
     }>
   | Readonly<{
       schema: 2;
-      migrations: ReadonlyArray<string>;
+      migrations: ReadonlyArray<string> | null;
       triggerConfig: CloudflareTriggerConfig;
       /** Digest of the complete Worker upload input, when supplied by the caller. */
       contentHash?: string;
@@ -181,7 +183,7 @@ type RecentCloudflareVersion = Readonly<{
 
 /** Encode migration state into Cloudflare's version annotation for safe rollback diagnostics. */
 export function encodeCloudflareVersionMessage(
-  migrations: ReadonlyArray<string>,
+  migrations: ReadonlyArray<string> | null,
   triggerConfig?: CloudflareTriggerConfig,
   contentHash?: string,
 ): string {
@@ -207,8 +209,11 @@ export function parseCloudflareVersionMessage(
     };
     if (
       (value.schema !== 1 && value.schema !== 2) ||
-      !Array.isArray(value.migrations) ||
-      !value.migrations.every((migration): migration is string => typeof migration === 'string')
+      (value.migrations !== null &&
+        (!Array.isArray(value.migrations) ||
+          !value.migrations.every(
+            (migration): migration is string => typeof migration === 'string',
+          )))
     ) {
       return null;
     }
@@ -1891,8 +1896,9 @@ async function readCloudflareVersionInspection(
       let draft = entry;
       let draftUnknown = false;
       if (
-        annotations?.['workers/triggered_by'] === 'secret' &&
-        Object.keys(annotations).length === 1 &&
+        ((annotations?.['workers/triggered_by'] === 'secret' &&
+          Object.keys(annotations).length === 1) ||
+          isVoidSecretDraftHeader(entry)) &&
         !isWranglerSecretOnlyDraft(entry)
       ) {
         draftUnknown = true;
@@ -1931,10 +1937,6 @@ async function readCloudflareVersionInspection(
   }
   return null;
 }
-
-// Message Void's secret transport gives the zero-binding placeholder it deploys when a Worker
-// does not exist yet (packages/void cloudflare-operation-process.ts).
-const VOID_SECRET_DRAFT_MESSAGE = 'void:secret-draft';
 
 /**
  * Recovery-only proof that a version is Void's secret placeholder: its marker plus the exact

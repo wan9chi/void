@@ -1,4 +1,5 @@
 ---
+description: "Keep your framework's routes and rendering, and use Void for databases, storage, jobs, and deployment."
 outline: deep
 ---
 
@@ -24,6 +25,8 @@ TanStack Start and React Router use the Cloudflare Vite plugin provided by Void.
 | [Astro **v7+**](./astro.md)           | `astro`                 | Own CLI and Cloudflare adapter (v7 required)                                 |
 
 Detection is automatic. The CLI reads your `package.json` dependencies.
+
+In vinext apps, `middleware.ts` and `proxy.ts` also apply to files in `public/`. When either file is present, static requests go through the Worker and count toward its request usage. Apps without middleware keep static asset delivery.
 
 ## Feature Support
 

@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import {
   createRouterFacade,
   createVoidRouter,
+  initIslands,
   mergeDataIntoHref,
   ssrProxy,
   submitAction,
@@ -12,9 +15,14 @@ import {
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
+import { ValidationError } from '../../src/pages/protocol.ts';
+import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import type { PageDefinition } from '../../src/pages/types.ts';
+import type { CloudContext } from '../../src/runtime/handler.ts';
 import {
+  createPageGetHandler,
   createPageMutationHandler,
+  createNamedActionMarker,
   createRoutingRuntime,
   type RoutingContext,
 } from '../../src/runtime/routing.ts';
@@ -127,14 +135,207 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('Pages serialization compatibility', () => {
+  function server(validation = false) {
+    const app = new Hono();
+    const loader = vi.fn(() => ({ date: new Date('2026-11-08'), count: 42n }));
+    const action = vi.fn((c: CloudContext) => {
+      if (validation) {
+        throw new ValidationError({ name: 'Required' });
+      }
+      c.header('Set-Cookie', 'saved=yes; Path=/');
+    });
+    const options = {
+      componentId: 'home',
+      load: async () => ({ loader, action }),
+      render: async () => '<html></html>',
+      assets: async () => ({ css: '', body: '', preloads: '' }),
+      headConfig: undefined,
+      renderOptions: {},
+    };
+    app.get('/next', createPageGetHandler(options));
+    app.post('/next', createPageMutationHandler(options));
+    return { app, loader, action };
+  }
+
+  it.each(['navigation', 'prefetch', 'action'] as const)(
+    'advertises the new serialization during %s and retains rich data',
+    async (operation) => {
+      stubClientGlobals();
+      const { app } = server();
+      const requests: Array<Request> = [];
+      vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+        const request = new Request(new URL(url, 'http://localhost'), init);
+        requests.push(request);
+        return app.fetch(request);
+      });
+      const { router } = await createTestRouter();
+      if (operation === 'prefetch') {
+        await router.prefetch('/next');
+      }
+      const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
+      expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
+      expect(window.location.href).toBeUndefined();
+    },
+  );
+
+  it.each(['navigation', 'prefetch', 'action'] as const)(
+    'hard-reloads a legacy %s without parsing the new payload or replaying an action',
+    async (operation) => {
+      stubClientGlobals();
+      const { app, loader, action } = server();
+      const applyUpdate = vi.fn();
+      const responses: Array<Response> = [];
+      vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+        const request = new Request(new URL(url, 'http://localhost'), init);
+        // Reproduce a deployed client that only sends X-VoidPages: true.
+        request.headers.delete('X-VoidPages-Version');
+        const response = await app.fetch(request);
+        responses.push(response.clone());
+        return response;
+      });
+      const { router } = await createTestRouter({ adapter: { applyUpdate } });
+      if (operation === 'prefetch') {
+        await router.prefetch('/next');
+      }
+      expect(
+        await router.visit('/next', operation === 'action' ? { method: 'POST' } : {}),
+      ).toBeUndefined();
+      expect(window.location.href).toBe('/next');
+      expect(applyUpdate).not.toHaveBeenCalled();
+      expect(loader).not.toHaveBeenCalled();
+      expect(action).toHaveBeenCalledTimes(operation === 'action' ? 1 : 0);
+      expect(responses).toHaveLength(1);
+      expect(responses[0]!.status).toBe(200);
+      expect(responses[0]!.headers.has('X-VoidPages')).toBe(false);
+      expect(responses[0]!.headers.get('Content-Type')).toContain('text/plain');
+      expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
+      expect(responses[0]!.headers.get('Vary')).toContain('X-VoidPages-Version');
+      expect(await responses[0]!.text()).toBe('');
+      if (operation === 'action') {
+        expect(responses[0]!.headers.get('Set-Cookie')).toContain('saved=yes');
+      }
+    },
+  );
+
+  it('keeps legacy validation errors available to the form without a reload', async () => {
+    stubClientGlobals();
+    const { app, loader, action } = server(true);
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      const request = new Request(new URL(url, 'http://localhost'), init);
+      request.headers.delete('X-VoidPages-Version');
+      return app.fetch(request);
+    });
+    const { router } = await createTestRouter();
+    const result = await submitAction(router, '/next', { method: 'POST' });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { status: 422, body: { errors: { name: 'Required' } } },
+    });
+    expect(window.location.href).toBeUndefined();
+    expect(loader).not.toHaveBeenCalled();
+    expect(action).toHaveBeenCalledOnce();
+  });
+});
+
 describe('createVoidRouter', () => {
-  describe.each(['navigation', 'prefetch'] as const)('static page data during %s', (operation) => {
+  it.each(['navigation', 'prefetch', 'static', 'action'] as const)(
+    'preserves rich data through %s and cached visits',
+    async (operation) => {
+      const doc = stubClientGlobals();
+      const values = {
+        date: new Date('2026-11-08'),
+        map: new Map([['x', 1]]),
+        count: 42n,
+        url: new URL('https://void.cloud/'),
+      };
+      const page = {
+        component: 'home',
+        props: values,
+        shared: values,
+        params: {},
+        url: '/rich',
+        errors: null,
+      };
+      const originalGet = doc.getElementById.getMockImplementation()!;
+      doc.getElementById.mockImplementation((id) =>
+        id === '__VOID_PAGE_DATA__' ? { textContent: serializePageData(page) } : originalGet(id),
+      );
+      const fetchMock = vi.fn(
+        async (_input: string) =>
+          new Response(serializePageData(page), {
+            headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const applyUpdate = vi.fn();
+      const { router, initialPageData } = await createTestRouter({
+        adapter: { applyUpdate },
+        staticPageData: operation === 'static',
+        staticPageDataFastPath: operation === 'static',
+        routeMeta: { home: { prerender: true } },
+        matchRoute: () => 'home',
+        cacheVisitedPageData: true,
+      });
+      try {
+        expect(initialPageData).toMatchObject({ props: values, shared: values });
+        if (operation === 'prefetch') {
+          await expect(router.prefetch('/rich')).resolves.toMatchObject({
+            props: values,
+            shared: values,
+          });
+        }
+        await router.visit('/rich', operation === 'action' ? { method: 'POST' } : {});
+        if (operation === 'static') {
+          expect(fetchMock.mock.calls[0][0]).toBe('/_void/pages/rich.json');
+        }
+        expect(applyUpdate.mock.calls.at(-1)![0]).toMatchObject({ props: values, shared: values });
+        if (operation !== 'action') {
+          await router.visit('/rich');
+          expect(applyUpdate.mock.calls.at(-1)![0]).toMatchObject({
+            props: values,
+            shared: values,
+          });
+        }
+      } finally {
+        router.flushAll();
+      }
+    },
+  );
+
+  it('hydrates island props and frontmatter with rich values', async () => {
+    const props = { date: new Date('2026-11-08'), count: 42n };
+    const frontmatter = { published: props.date };
+    const attributes: Record<string, string> = {
+      'data-island': 'counter',
+      'data-props': serializePageData(props),
+      'data-hydrate': 'load',
+    };
+    const element = { getAttribute: (name: string) => attributes[name] ?? null };
+    vi.stubGlobal('document', {
+      getElementById: () => ({ textContent: serializePageData(frontmatter) }),
+      querySelectorAll: () => [element],
+    });
+    const hydrate = vi.fn();
+    const component = {};
+    initIslands({ counter: async () => component }, hydrate);
+    await vi.waitFor(() =>
+      expect(hydrate).toHaveBeenCalledWith(element, component, props, frontmatter),
+    );
+  });
+  describe.each(
+    ['navigation', 'prefetch'].flatMap((operation) =>
+      ['', '/'].map((suffix) => ({ operation, suffix })),
+    ),
+  )('static page data during $operation (suffix: $suffix)', ({ operation, suffix }) => {
     it.each([true, false, undefined])('respects prerender = %s', async (prerender) => {
       stubClientGlobals();
       const page: PageDefinition = {
         componentId: 'blog/[slug]',
         componentPath: 'blog/[slug].tsx',
-        pattern: '/blog/:slug',
+        pattern: `/blog/:slug${suffix}`,
         params: ['slug'],
         catchAll: false,
         serverPath: 'blog/[slug].server.ts',
@@ -154,7 +355,8 @@ describe('createVoidRouter', () => {
         VoidRouterConfig,
         'routeMeta' | 'matchRoute'
       >;
-      const url = '/blog/example';
+      const url = `/blog/example${suffix}`;
+      const dataUrl = `/_void/pages/blog/example${suffix ? '/index' : ''}.json`;
       const pageData = {
         component: page.componentId,
         props: { title: 'Example' },
@@ -162,7 +364,7 @@ describe('createVoidRouter', () => {
         errors: null,
       };
       const fetchMock = vi.fn(async (input: string) => {
-        if (input === '/_void/pages/blog/example.json') {
+        if (input === dataUrl) {
           return prerender === false
             ? new Response(null, { status: 404 })
             : Response.json(pageData);
@@ -186,7 +388,7 @@ describe('createVoidRouter', () => {
           await expect(router.prefetch(url)).resolves.toEqual(pageData);
         }
         expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([
-          prerender === false ? url : '/_void/pages/blog/example.json',
+          prerender === false ? url : dataUrl,
         ]);
         if (prerender === false) {
           expect(fetchMock).toHaveBeenCalledWith(
@@ -221,6 +423,86 @@ describe('createVoidRouter', () => {
 
       expect(window.scrollTo).not.toHaveBeenCalled();
       expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', '/editor');
+    },
+  );
+
+  it('keeps the page query, scroll and history entry for an in-place action', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/editor';
+    window.location.search = '?page=2&search=foo';
+    window.scrollY = 1800;
+    const fetch = vi.fn(async () =>
+      pageJson({ component: 'home', props: {}, url: '/editor?page=2&search=foo', errors: null }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { router } = await createTestRouter();
+
+    await submitAction(router, '/editor?save', { method: 'POST' });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/editor?save&page=2&search=foo',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-VoidPages-Preserved-Query': 'page=2&search=foo' }),
+      }),
+    );
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(history.pushState).not.toHaveBeenCalled();
+    expect(history.replaceState).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      '/editor?page=2&search=foo',
+    );
+  });
+
+  it.each(['?page=2&search=foo', '?delete=confirm&page=2'])(
+    'keeps the default action selected when preserving the page query %s',
+    async (search) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.location.search = search;
+      window.scrollY = 1800;
+      const query = Object.fromEntries(new URLSearchParams(search));
+      const action = vi.fn((c: CloudContext) => {
+        expect(c.req.query()).toEqual(query);
+      });
+      const deleteAction = vi.fn();
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.post(
+        '/editor',
+        createPageMutationHandler({
+          componentId: 'home',
+          namedActions: true,
+          load: async () => ({
+            actions: { default: action, delete: deleteAction },
+            loader: (c: CloudContext) => ({ query: c.req.query() }),
+          }),
+          render: async () => '<html></html>',
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+          headConfig: undefined,
+          renderOptions: { renderMode: 'server' },
+        }),
+      );
+      vi.stubGlobal('fetch', (url: string, init: RequestInit) =>
+        app.fetch(new Request(new URL(url, window.location.origin), init)),
+      );
+      const applyUpdate = vi.fn();
+      const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+      const result = await submitAction(router, '/editor', { method: 'POST' });
+
+      expect(result.ok).toBe(true);
+      expect(action).toHaveBeenCalledOnce();
+      expect(deleteAction).not.toHaveBeenCalled();
+      expect(applyUpdate.mock.calls[0][0]).toMatchObject({
+        props: { query },
+        url: '/editor' + search,
+      });
+      expect(history.pushState).not.toHaveBeenCalled();
+      expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', '/editor' + search);
+      expect(window.scrollTo).not.toHaveBeenCalled();
     },
   );
 
@@ -744,6 +1026,132 @@ describe('createVoidRouter', () => {
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 2 } });
   });
 
+  it('reloads the destination when another deployment returns an unknown boundary plan', async () => {
+    stubClientGlobals();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          pageJson({ component: '_void:boundary:new-build', props: { error: { status: 404 } } }),
+        ),
+    );
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+    });
+    await expect(router.visit('/users')).resolves.toBeUndefined();
+    expect(window.location.href).toBe('/users');
+  });
+  it('recovers a failed component import with an uncached, sanitized boundary', async () => {
+    stubClientGlobals();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        pageJson({
+          component: 'users',
+          props: {},
+          params: {},
+          shared: {},
+          url: '/users',
+          errors: null,
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: {
+        home: loadComponent,
+        users: async () => {
+          throw new Error('SECRET_CHUNK');
+        },
+        error: loadComponent,
+      },
+      matchRoute: () => 'users',
+      boundaryManifest: {
+        plans: {
+          error: {
+            id: 'error',
+            componentId: '_error',
+            directory: '',
+            filePath: '_error.tsx',
+            kind: 'error',
+            source: 'users',
+            layouts: [],
+          },
+        },
+        pages: { users: { errors: ['error'], catches: [{ depth: 0, plan: 'error' }] } },
+      },
+      cacheVisitedPageData: true,
+    });
+    try {
+      await expect(router.visit('/users')).resolves.toMatchObject({
+        component: 'error',
+        props: { error: { status: 500, message: 'Internal Server Error' } },
+      });
+      await router.visit('/users');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      router.flushAll();
+    }
+  });
+
+  it('retains cached success when background revalidation returns a boundary', async () => {
+    stubClientGlobals();
+    const failure = new Response(
+      JSON.stringify({ component: 'error-plan', props: { error: { status: 500 } } }),
+      { status: 500, headers: { 'X-VoidPages': 'true', 'Cache-Control': 'no-store' } },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 1 } }))
+      .mockResolvedValue(failure);
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      prefetchDefaultCacheFor: { stale: 0, expires: 60_000 },
+    });
+    try {
+      await router.prefetch('/users');
+      await router.visit('/users');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 1 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      router.flushAll();
+    }
+  });
+
+  it('refresh bypasses cached success and a superseded background result cannot restore it', async () => {
+    stubClientGlobals();
+    const background = controlledPromise<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 1 } }))
+      .mockReturnValueOnce(background.promise)
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 3 } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      prefetchDefaultCacheFor: { stale: 0, expires: 60_000 },
+      cacheVisitedPageData: true,
+    });
+    try {
+      await router.prefetch('/users');
+      await router.visit('/users');
+      window.location.pathname = '/users';
+      await expect(router.refresh()).resolves.toMatchObject({ props: { version: 3 } });
+      background.resolve(pageJson({ component: 'users', props: { version: 2 } }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      router.flushAll();
+    }
+  });
+
   it('reuses visited GET page shells while their refresh is pending when opted in', async () => {
     stubClientGlobals();
     let requests = 0;
@@ -778,7 +1186,7 @@ describe('createVoidRouter', () => {
 
     expect(finishRefresh).toBeTypeOf('function');
     finishRefresh!(pageJson({ component: 'users', props: { version: 3 } }));
-    await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
+    await expect.poll(() => router.prefetch('/users')).toMatchObject({ props: { version: 3 } });
   });
 
   it('reuses the server-rendered initial page on a return visit', async () => {
@@ -818,7 +1226,7 @@ describe('createVoidRouter', () => {
 
     await router.visit('/users');
     await expect(router.visit('/dashboard')).resolves.toMatchObject({ props: { version: 1 } });
-    await expect(router.prefetch('/dashboard')).resolves.toMatchObject({ props: { version: 3 } });
+    await expect.poll(() => router.prefetch('/dashboard')).toMatchObject({ props: { version: 3 } });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -1030,7 +1438,9 @@ describe('createVoidRouter', () => {
         vi.fn(async (url: string, init: RequestInit) => {
           const response = await app.fetch(new Request(new URL(url, window.location.origin), init));
           expect(response.status).toBe(200);
-          expect(await response.clone().json()).toMatchObject({ url: '/books?category=internal' });
+          expect(decodePageData(await response.clone().json())).toMatchObject({
+            url: '/books?category=internal',
+          });
           return response;
         }),
       );
@@ -1315,7 +1725,13 @@ describe('createVoidRouter', () => {
     await router.visit('/next', { preserveState: true });
     expect(fetchMock).toHaveBeenCalledWith(
       '/next',
-      expect.objectContaining({ headers: { 'X-VoidPages': 'true', Accept: 'application/json' } }),
+      expect.objectContaining({
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          Accept: 'application/json',
+        },
+      }),
     );
     expect(applyUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ component: 'next' }),
@@ -1409,7 +1825,13 @@ describe('createVoidRouter', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/docs',
-      expect.objectContaining({ headers: { 'X-VoidPages': 'true', Accept: 'application/json' } }),
+      expect.objectContaining({
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          Accept: 'application/json',
+        },
+      }),
     );
     expect(applyUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ component: 'docs' }),

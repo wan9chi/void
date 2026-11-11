@@ -27,6 +27,7 @@ import {
   restoreCloudflarePreviewPointer,
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
+import { syncBindingTypes } from './codegen/binding-types.ts';
 import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
@@ -42,6 +43,7 @@ import {
   isViteBuildOrPreview,
   getOrCreateDevTriggerToken,
   devTriggerSecretGuardPlugin,
+  isVitestServer,
   selectVoidCloudflareLogin,
 } from './plugin-dev-config.ts';
 import { devTriggersHintPlugin } from './plugin-dev-triggers-hint.ts';
@@ -53,6 +55,7 @@ import { envSchemaPlugin, type EnvSchemaFacts } from './plugin-env-schema.ts';
 import {
   getFrameworkEntry,
   generateClassATriggerWrapper,
+  hasVinextMiddleware,
   getOriginalFrameworkEntry,
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
@@ -108,6 +111,7 @@ export function voidPlugin(options?: {
     ? crypto.randomUUID()
     : getOrCreateDevTriggerToken(root);
   const config = readConfig(root);
+  syncBindingTypes(root, config);
   const projectCloudflareConfigPath = !isNodeTarget(config.target)
     ? materializeCloudflareConfig(root)
     : undefined;
@@ -539,7 +543,9 @@ export function voidPlugin(options?: {
             );
           });
         } else if (credentials.status === 'no-project') {
-          if (process.stdin.isTTY) {
+          // A test run must not stop for questions, and Vitest's watch mode reads keys from
+          // the terminal, so Vitest's server gets the hint below.
+          if (process.stdin.isTTY && !isVitestServer(server.config)) {
             // Fire-and-forget interactive setup
             afterServerReady(server, () => {
               console.log();
@@ -632,6 +638,13 @@ export function voidPlugin(options?: {
   };
 
   if (framework) {
+    if ((framework === 'vinext-app' || framework === 'vinext-pages') && hasVinextMiddleware(root)) {
+      workerConfig.assets = {
+        binding: 'ASSETS',
+        not_found_handling: 'none',
+        run_worker_first: ['/*'],
+      };
+    }
     workerConfig.main = getFrameworkEntry(
       framework,
       root,
@@ -858,7 +871,9 @@ export function voidPlugin(options?: {
         hasSandbox: false,
       }),
       prerenderPlugin(root, config),
-      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno'),
+      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno', {
+        trailingSlash: config.routing?.trailingSlash,
+      }),
     ];
   }
 
@@ -1051,6 +1066,7 @@ export {
 export type {
   CloudContext,
   CloudContextVariables,
+  CloudBindings,
   CloudEnv,
   BasicAuthOptions,
   RenderAssetTags,

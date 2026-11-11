@@ -1,4 +1,5 @@
 ---
+description: 'Turn files in pages/ into routes. A server loader returns data, and the page component receives it as props.'
 outline: deep
 ---
 
@@ -153,6 +154,8 @@ Render and prerender flags combine like this:
 | Island page + `ssr = false`            | Invalid. Island pages already use the island renderer.                    |
 | `output: "static"` + `prerender` unset | Auto-prerender pages that have known paths, including client-only shells. |
 
+Write `ssr` and `prerender` as `true` or `false` with `export const` in the `.server.ts` file itself. Void reads them without running the file, so it ignores a computed or re-exported value and prints a warning.
+
 ### Typed navigation
 
 Use the `Link` component for SPA navigation between pages. Build dynamic URLs with [`routeUrl()`](../type-safety.md#typed-urls-and-navigation) to check the route pattern and its parameters:
@@ -164,7 +167,7 @@ import { Link } from "@void/react";
 import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 ```vue [Vue]
@@ -175,7 +178,7 @@ import { routeUrl } from 'void/routes';
 
 <template>
   <Link href="/users">Users</Link>
-  <Link :href="routeUrl('/users/:id', { params: { id } })">View</Link>
+  <Link :href="routeUrl('/users/[id]', { params: { id } })">View</Link>
 </template>
 ```
 
@@ -186,7 +189,7 @@ import { routeUrl } from 'void/routes';
 </script>
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 ```tsx [Solid]
@@ -194,7 +197,7 @@ import { Link } from "@void/solid";
 import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 :::
@@ -305,6 +308,8 @@ import { Link } from '@void/solid';
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
+If a deployment changes Void's page-data format, already-open tabs reload on their next page navigation to load the matching client.
+
 For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
 ```ts
@@ -313,7 +318,7 @@ import type { RouteDestination } from 'void/routes';
 
 const router = useRouter();
 const profile = {
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
 } satisfies RouteDestination;
@@ -338,7 +343,7 @@ For dynamic route params, use `useParams()` from the same adapter package. Pass 
 import { useParams } from '@void/react';
 
 export default function PostPage() {
-  const { id } = useParams<'/posts/:id'>(); // { id: string }
+  const { id } = useParams<'/posts/[id]'>(); // { id: string }
   return <h1>Post {id}</h1>;
 }
 ```
@@ -348,7 +353,7 @@ export default function PostPage() {
 <script setup lang="ts">
 import { useParams } from '@void/vue';
 
-const params = useParams<'/posts/:id'>(); // { id: string }
+const params = useParams<'/posts/[id]'>(); // { id: string }
 </script>
 
 <template>
@@ -361,7 +366,7 @@ const params = useParams<'/posts/:id'>(); // { id: string }
 <script lang="ts">
   import { useParams } from '@void/svelte';
 
-  const params = useParams<'/posts/:id'>(); // { id: string }
+  const params = useParams<'/posts/[id]'>(); // { id: string }
 </script>
 
 <h1>Post {params.id}</h1>
@@ -372,7 +377,7 @@ const params = useParams<'/posts/:id'>(); // { id: string }
 import { useParams } from '@void/solid';
 
 export default function PostPage() {
-  const params = useParams<'/posts/:id'>(); // { id: string }
+  const params = useParams<'/posts/[id]'>(); // { id: string }
   return <h1>Post {params.id}</h1>;
 }
 ```

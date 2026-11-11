@@ -1,4 +1,5 @@
 ---
+description: 'Change server data from a form or button with a page action. Actions accept POST, PUT, PATCH, and DELETE.'
 outline: deep
 ---
 
@@ -149,21 +150,22 @@ The types are inferred from your action's `withValidator()` schema in the compan
 
 `useForm` returns a reactive object with:
 
-| Property / Method                | Purpose                                                                                                                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                       |
-| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                      |
-| `error`                          | Action error, or `null`.                                                                                                                                                            |
-| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                  |
-| `pending`                        | `true` while the submission is in flight.                                                                                                                                           |
-| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values so `hasChanges` becomes `false`.                          |
-| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.                                                                                                       |
-| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                      |
-| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`. |
-| `resetOnSuccess` (option)        | When `true`, a successful submit resets both form data and defaults to the mount-time values. Useful for create forms that should clear after save.                                 |
-| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                      |
-| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                  |
-| `clearError()`                   | Clear `error`.                                                                                                                                                                      |
+| Property / Method                | Purpose                                                                                                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                                            |
+| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                                           |
+| `error`                          | Action error, or `null`.                                                                                                                                                                                 |
+| `throwOnError` (option)          | Set to `false` to keep authentication and server failures in `form.error` instead of throwing them.                                                                                                      |
+| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                                       |
+| `pending`                        | `true` while the submission is in flight.                                                                                                                                                                |
+| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values, so `hasChanges` becomes `false` unless the form was edited during the submit. |
+| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.                                                                                                                            |
+| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                                           |
+| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`.                      |
+| `resetOnSuccess` (option)        | When `true`, a successful submit resets defaults to the mount-time values, and form data too unless it was edited during the submit. Useful for create forms that should clear after save.               |
+| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                                           |
+| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                                       |
+| `clearError()`                   | Clear `error`.                                                                                                                                                                                           |
 
 Use `setError()` for client-side validation. Editing a field clears its error automatically.
 
@@ -173,7 +175,7 @@ For dynamic routes, pass `params` in the options:
 
 ```ts
 // pages/users/[id].server.ts has an action
-const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
+const form = useForm('/users/[id]', { name: '' }, { params: { id: '42' } });
 <Form form={form} method="put">{/* submits to /users/42 */}</Form>
 ```
 
@@ -202,6 +204,12 @@ If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 
 
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
+### Query parameters after submission
+
+An action or form that posts to the current page keeps the page's query parameters. From `/items?page=2&search=foo`, `action('/items?vote')` posts to `/items?vote&page=2&search=foo`, so the action and loader see `page` and `search`. The URL, scroll position, and history entry stay as they are. A parameter written in the action URL takes precedence over the page's: `action('/items?vote&page=1')` posts with `page=1`.
+
+A redirect from the action does not receive the page's query parameters. To clear them after an action, return `c.redirect('/items')`.
+
 ### Scroll after submission
 
 Actions and forms keep the current scroll position when updating the page in place. Redirects and submissions that open another page scroll to the top, or to the destination's hash target.
@@ -209,7 +217,7 @@ Actions and forms keep the current scroll position when updating the page in pla
 Pass `preserveScroll: false` to reset scroll after an in-place update, or `true` to keep it even after a redirect:
 
 ```ts
-await action('/users/:id?update', {
+await action('/users/[id]?update', {
   params: { id: '42' },
   data: { name: 'Alice' },
   preserveScroll: false,
@@ -233,7 +241,7 @@ export const actions = {
   update: defineHandler.withValidator({
     body: updateUserSchema,
   })(async (c, { body }) => {
-    const { id } = c.req.param() as PageParams<'/users/:id'>;
+    const { id } = c.req.param() as PageParams<'/users/[id]'>;
     await db
       .update(users)
       .set(body)
@@ -241,13 +249,13 @@ export const actions = {
   }),
 
   delete: defineHandler(async (c) => {
-    const { id } = c.req.param() as PageParams<'/users/:id'>;
+    const { id } = c.req.param() as PageParams<'/users/[id]'>;
     await db.delete(users).where(eq(users.id, Number(id)));
   }),
 };
 ```
 
-Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
+Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps the action URL's ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
 
 Use `action` or `actions` in a file, not both.
 
@@ -269,7 +277,7 @@ export const actions = {
 When a page exports named actions, append `?actionName` to the URL:
 
 ```ts
-const form = useForm('/users/:id?update', { name: '' }, { params: { id } });
+const form = useForm('/users/[id]?update', { name: '' }, { params: { id } });
 <Form form={form} method="put">{/* submits to /users/42?update */}</Form>
 ```
 
@@ -282,7 +290,7 @@ Use `action()` for a button or other mutation that does not need form state. It 
 ```ts
 import { action } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
 
-const result = await action('/users/:id?delete', {
+const result = await action('/users/[id]?delete', {
   params: { id: '42' },
   method: 'DELETE',
 });
@@ -301,7 +309,17 @@ A successful call returns `{ ok: true, pageData }`. Expected errors, such as val
 
 Expected errors such as `400`, `404`, `409`, `422`, and `429` stay with the form or action call. `useForm` stores them in `form.errors` or `form.error`; `action()` returns `{ ok: false, error }`.
 
-Authentication errors (`401`, `403`), server errors (`500`, `502`), and unexpected failures are thrown. Handle them with your framework's error boundary or error handling.
+By default, authentication errors (`401`, `403`) and server errors (`500`, `502`) are thrown. Handle them with your framework's error boundary or error handling.
+
+To handle all HTTP failures inline, pass `throwOnError: false` to `useForm()`. Validation errors still populate `form.errors`; other HTTP failures populate `form.error`, keeping the form and its input visible. The `Form` component displays the error automatically. In React, `onError` also receives these failures.
+
+```ts
+import { useForm } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+
+const form = useForm('/users', { name: '', email: '' }, { throwOnError: false });
+```
+
+Unexpected failures, such as network errors, still throw. Cancelled submissions do not set a form error.
 
 Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
 
@@ -442,6 +460,8 @@ export const action = defineHandler(async (c) => {
   });
 });
 ```
+
+`withValidator({ body })` accepts the same upload. Nested names such as `profile[name]`, `tags[0]`, and `tags[]` are objects and arrays again. A multipart schema has to coerce the rest: booleans arrive as `'1'` or `'0'`, numbers and dates as strings, and `null` as `''`.
 
 Pick the storage key on the server and allow only the file types you expect. See [Serving Files](../storage.md#serving-files) to send them back safely.
 

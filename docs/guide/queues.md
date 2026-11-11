@@ -1,4 +1,5 @@
 ---
+description: 'Process work asynchronously with a consumer in queues/, then send it typed messages from your app.'
 outline: deep
 ---
 
@@ -109,6 +110,8 @@ export default defineQueue<Message>(async (batch, env) => {
 - `maxBatchTimeout`: maximum seconds to wait before delivering an incomplete batch (default `5`)
 - `maxRetries`: maximum number of retries before delivery is exhausted (default `3`)
 - `retryDelay`: seconds to wait between retries (default `0`)
+
+Declare each option in the queue file with `export const` and a whole-number literal. Void reads these values without running the file, so computed values and options re-exported from another module are not supported. To use the same value in several queues, repeat it in each queue file.
 
 Void-managed queues do not configure a dead-letter queue. Cloudflare permanently
 deletes messages that exhaust their retries without one; see

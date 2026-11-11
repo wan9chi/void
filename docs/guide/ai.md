@@ -1,4 +1,5 @@
 ---
+description: 'Run Workers AI models and provider APIs from server code. Provider requests go through Cloudflare AI Gateway.'
 outline: deep
 ---
 
@@ -28,6 +29,8 @@ account shown by `void cloudflare status`, or set `CLOUDFLARE_API_TOKEN`.
 
 For a team platform, use `void connect <platform-url>` and link your project.
 Development requests use that platform's account and usage limits.
+If the platform reports that AI is disabled, ask your administrator to enable it.
+This also applies to model listing, Markdown conversion, and provider-native requests.
 
 ## Basic Usage
 

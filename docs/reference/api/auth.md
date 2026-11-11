@@ -1,4 +1,5 @@
 ---
+description: 'Sessions, users, and auth clients from void/auth, plus the browser helpers in void/client.'
 outline: deep
 ---
 
@@ -55,6 +56,25 @@ const state = getSession();
 
 ```ts
 function getSession(): AuthState | null;
+```
+
+## `getAuth(c)` {#getauth-c}
+
+Returns the Better Auth instance for the current request, including plugin APIs inferred from `auth.ts`. Use it with Better Auth plugin helpers or to forward requests to `auth.handler`.
+
+```ts
+import { defineHandler } from 'void';
+import { getAuth } from 'void/auth';
+
+export const GET = defineHandler((c) => getAuth(c).handler(c.req.raw));
+```
+
+Requires [authentication](../../guide/auth.md) to be enabled. Throws if no instance is available on the request. It is available to anonymous requests too; use `requireAuth(c)` when a route requires a signed-in user.
+
+**Signature:**
+
+```ts
+function getAuth(c: CloudContext): AuthInstance;
 ```
 
 ## `requireAuth(c)` {#requireauth-c}

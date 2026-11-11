@@ -1,4 +1,5 @@
 ---
+description: 'Call your API from the client with a typed fetch that checks paths, request bodies, and response types.'
 outline: deep
 ---
 
@@ -21,10 +22,12 @@ await fetch('/api/users', {
 });
 
 // Dynamic params interpolated from the route pattern
-const user = await fetch('/api/users/:id', {
+const user = await fetch('/api/users/[id]', {
   params: { id: '42' },
 });
 ```
+
+Route patterns use the same brackets as your filenames.
 
 ## What Gets Type-Checked
 
@@ -64,7 +67,7 @@ Non-2xx responses throw a `FetchError`:
 import { fetch, FetchError } from 'void/client';
 
 try {
-  await fetch('/api/users/:id', { params: { id: '999' } });
+  await fetch('/api/users/[id]', { params: { id: '999' } });
 } catch (e) {
   if (e instanceof FetchError) {
     console.log(e.status); // 404
@@ -81,7 +84,7 @@ try {
 | `method`  | `string`                 | HTTP method. Defaults to `"GET"`.                          |
 | `body`    | `object`                 | Request body (auto-serialized as JSON).                    |
 | `query`   | `Record<string, string>` | Query string parameters.                                   |
-| `params`  | `Record<string, string>` | URL path parameters (`:id` segments).                      |
+| `params`  | `Record<string, string>` | URL path parameters (`[id]` segments).                     |
 | `headers` | `HeadersInit`            | Additional request headers.                                |
 | `signal`  | `AbortSignal`            | Abort signal.                                              |
 | `baseURL` | `string`                 | Base URL prepended to the path. Useful for external calls. |

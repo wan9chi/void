@@ -2,6 +2,9 @@ import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
 import { createManifestLoader, type ManifestLoader } from './routing-assets.ts';
 
+// Native Void routing records intentional 404s before Hono wraps HEAD responses.
+export const intentionalNotFoundRequests: WeakSet<Request> = new WeakSet();
+
 export type AssetBinding = { fetch: (request: Request) => Promise<Response> };
 export type RuntimeEnvironment = Record<string, unknown> & { ASSETS?: AssetBinding };
 export type AssetFallbackOptions = {
@@ -106,6 +109,7 @@ export function createAssetFallback(
   return async (request, env, response) => {
     if (
       response.status !== 404 ||
+      intentionalNotFoundRequests.has(request) ||
       !env.ASSETS ||
       (request.method !== 'GET' && request.method !== 'HEAD')
     ) {
@@ -188,6 +192,7 @@ export type WorkerFetchOptions = {
     env: RuntimeEnvironment,
     ctx: ExecutionContext,
   ) => Promise<Array<string>>;
+  staticNotFound?: (request: Request, env: RuntimeEnvironment) => Promise<Response>;
   emailReceipt?: (
     request: Request,
     env: RuntimeEnvironment,
@@ -231,7 +236,11 @@ export function createWorkerFetch(
       request.method === 'POST' &&
       url.pathname === '/__void/prerender-paths' &&
       originalEnv.__VOID_PRERENDER === '1';
-    if (options.validateEnv && !discovery) {
+    const staticNotFound =
+      request.method === 'GET' &&
+      url.pathname === '/__void/static-not-found' &&
+      originalEnv.__VOID_PRERENDER === '1';
+    if (options.validateEnv && !discovery && !staticNotFound) {
       await options.validateEnv(originalEnv);
     }
     const env =
@@ -257,6 +266,11 @@ export function createWorkerFetch(
               ? { headers: { 'cache-control': 'no-store' } }
               : undefined,
           );
+        }
+        if (staticNotFound) {
+          return options.staticNotFound
+            ? options.staticNotFound(request, env)
+            : new Response(null, { status: 204 });
         }
         const internal = await options.internalRoute(request, env, ctx);
         if (internal) {

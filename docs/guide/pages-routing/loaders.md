@@ -1,4 +1,5 @@
 ---
+description: "Load a page's data in a companion .server.ts file. The component receives that data as typed props."
 outline: deep
 ---
 
@@ -25,6 +26,8 @@ export const loader = defineHandler(async (c) => {
 ```
 
 `InferProps` infers the loader’s return type, so page props stay in sync with the data it returns.
+
+Void preserves `Date`, `Map`, `Set`, `bigint`, `RegExp`, `URL`, `undefined`, and repeated or cyclic references in page props and shared data. These values keep their types during server rendering, hydration, navigation, and deferred loading. Return data directly from your loader; explicitly returning `Response.json()` uses ordinary JSON conversion instead. Functions and custom class instances cannot be sent as page data.
 
 ## Using the Data in Page Components
 

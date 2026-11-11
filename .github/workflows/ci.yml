@@ -21,14 +21,6 @@ jobs:
     runs-on: ${{ matrix.os == 'ubuntu-latest' && github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || matrix.os }}
     permissions:
       contents: read
-      # Remote cache uploads authenticate with a GitHub Actions OIDC token.
-      id-token: write
-    env:
-      # Remote task cache, on when the repository variable is set. Pushes and pull requests from
-      # this repository upload results; fork pull requests get no OIDC token and only download.
-      # Replay: pull requests from fork/ branches stand in for fork pull requests.
-      VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
-      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'fork/')) && 'read-write' || 'read' }}
     strategy:
       fail-fast: false
       matrix:
@@ -40,45 +32,105 @@ jobs:
       - uses: ./.github/actions/test-setup
       # Build every playground once per OS for complete build/type coverage.
       # Integration tests build their own selected fixtures in separate checkouts.
-      - run: vp run --cache build:all
-        env:
-          # Replay diagnostics: vp's debug traces show where each task's time goes, such as how long
-          # its remote cache lookup waited. VP_* envs aren't fingerprinted.
-          VP_LOG: vt=debug,vt_remote_cache=debug
-      # Replay diagnostics: the full summary of the build:all run, with each task's cache status.
-      - if: ${{ !cancelled() }}
-        run: vp run --last-details
-      # Replay check: hash what the cached build left, to compare with a fresh build at the end.
-      - if: ${{ !cancelled() }}
-        run: node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/cached-outputs"
+      - run: vp run build:all
       - run: vp run build:docs
       - run: node test/check-playground-build-artifacts.mjs
       - run: vp run check
-      # Replay check: rebuild from a clean tree without the cache, and compare the outputs with the
-      # cached build's. A difference in a task that hit is a false hit unless the file is
-      # nondeterministic. These steps don't affect the job's result.
-      - if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          VP_REMOTE_CACHE: 'off'
-        # Like CI's install, whose `prepare` script runs build:core before build:all: the platform
-        # runtime bundle reads void's dist when it exists, without depending on void.
-        run: |
-          git checkout -- . && git clean -fdxq -e node_modules
-          vp run --no-cache build:core
-          vp run --no-cache build:all
-      - if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: |
-          node .github/replay/outputs.mjs snapshot "${{ runner.temp }}/fresh-outputs.json"
-          node .github/replay/outputs.mjs compare "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/fresh-outputs.json" "${{ runner.temp }}/cached-outputs"
-          node .github/replay/outputs.mjs collect "${{ runner.temp }}/cached-outputs.json" "${{ runner.temp }}/fresh-outputs.json" "${{ runner.temp }}/cached-outputs" "${{ runner.temp }}/replay-diff"
-      - if: ${{ !cancelled() }}
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
+
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.shard }})
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || matrix.os }}
+    permissions:
+      contents: read
+    # No Cloudflare creds in this job. The credentialed live deploy e2e runs in the separate
+    # `live-e2e` job (below), whose secrets are bound to the `cloudflare-e2e` environment. Here the
+    # live suite (part of `vp run test:all`) sees empty creds and self-skips on every event.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows runs on branch/tag pushes and on PRs labeled "test: windows",
+        # unless a reusable workflow caller explicitly disables it.
+        os: '${{ ((github.event_name == ''push'' || contains(github.event.pull_request.labels.*.name, ''test: windows'')) && !inputs.skip_windows) && fromJSON(''["ubuntu-latest","windows-latest"]'') || fromJSON(''["ubuntu-latest"]'') }}'
+        # Weighted integration shards own separate checkouts and build only the
+        # fixtures they exercise. No generated playground state crosses runners.
+        shard: [unit, '1/2', '2/2']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: replay-diff-${{ matrix.os }}
-          path: ${{ runner.temp }}/replay-diff
-          if-no-files-found: ignore
-          retention-days: 30
+          persist-credentials: false
+      - uses: ./.github/actions/test-setup
+        with:
+          browser: ${{ matrix.shard != 'unit' }}
+
+      - run: vp check
+        if: ${{ matrix.shard == 'unit' }}
+
+      # Unit suites import the core package and its workspace dependencies through public exports and
+      # exercise generated CLI assets, so they need the transitive core stack even though they skip
+      # playground builds.
+      - run: vp run build:core
+        if: ${{ matrix.shard == 'unit' }}
+
+      - run: vp test run --project unit --project unit-pglite --project cli-unit
+        if: ${{ matrix.shard == 'unit' }}
+
+      - run: vp run build
+        if: ${{ matrix.shard != 'unit' }}
+
+      - run: vp test run --project parallel-integration --shard=${{ matrix.shard }}
+        if: ${{ matrix.shard != 'unit' }}
+
+  # Credentialed live Cloudflare deploy e2e, ISOLATED from `test` so the account token exists ONLY in
+  # a job bound to the `cloudflare-e2e` GitHub Environment. That environment's deployment branch policy
+  # allows `main` ONLY and the ref is enforced server-side, so a `pull_request` run (ref
+  # refs/pull/<n>/merge) can never reach the secret — even a PR that edits this file — and a modified
+  # workflow cannot exfiltrate it. The `if` also keeps the job off everything except a direct push to
+  # the `main` branch: tag pushes and `workflow_call` (release) carry a non-main ref, so they are
+  # skipped — which both avoids a branch-policy failure and matches where the secret is allowed, and
+  # it is scoped to the canonical repo so forks don't run it. It updates a reusable test Worker
+  # and retains its resources; job concurrency serializes that shared target. A preflight step fails
+  # the job when a credential is empty (unset / deleted / not-yet-rotated token), so a missing secret can never turn
+  # the live-deploy gate into a silent green no-op (the `test` job's uncredentialed run still skips).
+  live-e2e:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'voidzero-dev/void' }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    environment: cloudflare-e2e
+    concurrency:
+      group: cloudflare-live-e2e
+      cancel-in-progress: false
+    env:
+      VOID_E2E_CF_TOKEN: ${{ secrets.VOID_E2E_CF_TOKEN }}
+      VOID_E2E_CF_ACCOUNT_ID: ${{ secrets.VOID_E2E_CF_ACCOUNT_ID }}
+      VOID_E2E_NAMESPACE: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@2dec1e33f4ab2c6d5bce1b0c4607961bb1a3f7a1 # v1.12.0
+        with:
+          node-version-file: .node-version
+          cache: true
+      # Fail closed BEFORE the build: a missing/empty credential must fail this job, not self-skip. The
+      # `${VAR:?}` expansion exits nonzero when the secret is unset OR empty (GitHub resolves an unset
+      # secret to '').
+      - name: Require live Cloudflare credentials
+        run: |
+          : "${VOID_E2E_CF_TOKEN:?empty — set it as a cloudflare-e2e environment secret}"
+          : "${VOID_E2E_CF_ACCOUNT_ID:?empty — set it as a cloudflare-e2e environment secret}"
+      # build:core produces the core package and its workspace dependencies, including
+      # dist/cli/cli.mjs and the built `void` plugin the deploy uses to build the app.
+      - run: vp run build:core
+      - run: vp test run packages/void/test/e2e/cloudflare-deploy-live.test.ts
+
+  done:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - checks
+      - test
+      - live-e2e
+    steps:
+      - run: exit 1
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

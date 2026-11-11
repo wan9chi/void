@@ -1,0 +1,81 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions: {}
+
+jobs:
+  validate-release:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@2dec1e33f4ab2c6d5bce1b0c4607961bb1a3f7a1 # v1.12.0
+        with:
+          node-version-file: .node-version
+          run-install: false
+          cache: false
+      - name: Validate package versions and release channel
+        run: node .github/scripts/release-policy.ts
+
+  ci:
+    needs: validate-release
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  platform-ci:
+    needs: validate-release
+    uses: ./.github/workflows/platform-ci.yml
+    with:
+      require-schema-compat: true
+    permissions:
+      contents: read
+      deployments: read
+
+  prepublish-test:
+    name: Prepublish Test
+    needs: validate-release
+    uses: ./.github/workflows/prepublish-test.yml
+    with:
+      suite: full
+      include_macos: true
+    permissions:
+      contents: read
+      pull-requests: read
+
+  publish:
+    needs: [ci, platform-ci, prepublish-test]
+    runs-on: ubuntu-latest
+    environment: Release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VOID_PLATFORM_SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@2dec1e33f4ab2c6d5bce1b0c4607961bb1a3f7a1 # v1.12.0
+        with:
+          node-version-file: .node-version
+          cache: true
+          registry-url: https://registry.npmjs.org
+      - name: Validate release versions and channel
+        id: release
+        run: node .github/scripts/release-policy.ts
+      - run: vp run build
+
+      - run: npm install -g npm@11
+      - name: Publish public packages
+        env:
+          RELEASE_NPM_TAG: ${{ steps.release.outputs.npm-tag }}
+        run: vp pm publish -r --access public --tag "$RELEASE_NPM_TAG" --no-git-checks

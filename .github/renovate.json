@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>Boshen/renovate"],
+  "packageRules": [
+    {
+      "description": "Manage npm dependencies and package managers manually.",
+      "matchDatasources": ["npm"],
+      "enabled": false
+    },
+    {
+      "description": "Use the same weekly cadence for all remaining updates.",
+      "matchPackageNames": ["*"],
+      "schedule": ["before 10am on monday"]
+    }
+  ]
+}
